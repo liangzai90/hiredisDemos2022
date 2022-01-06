@@ -4,6 +4,7 @@
 
 
 1.在执行了 redisCommand 获取到 返回值之后，记得用 freeReplyObject 释放掉返回的对象。
+
 `C++
     redisReply *rRep0 = (redisReply *)redisCommand(redisObj, command0);
     freeReplyObject(rRep0);
@@ -11,6 +12,7 @@
 
 
 2.使用 redisAppendCommand 命令，需要手动调用 redisGetReply ，然后再调用 freeReplyObject 释放资源
+
 `C++
 
     //=================test redisAppendCommand
