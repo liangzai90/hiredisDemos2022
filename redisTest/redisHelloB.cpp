@@ -68,6 +68,12 @@ int main()
 
 
 
+
+
+
+
+
+    //redis的读写，都需要有返回值的，如果放在队列反而不合理
     // XMsgServer server;
     // server.Start();
     // for (int i = 0; i < 5; i++)

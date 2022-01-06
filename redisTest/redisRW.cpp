@@ -12,6 +12,56 @@
 #include <assert.h>
 using namespace std;
 
+
+
+int TC_Port::gettimeofday(struct timeval &tv)
+{
+#if TARGET_PLATFORM_WINDOWS
+	static const DWORDLONG FILETIME_to_timeval_skew = 116444736000000000;
+	FILETIME tfile;
+	::GetSystemTimeAsFileTime(&tfile);
+
+	ULARGE_INTEGER tmp;
+	tmp.LowPart = tfile.dwLowDateTime;
+	tmp.HighPart = tfile.dwHighDateTime;
+	tmp.QuadPart -= FILETIME_to_timeval_skew;
+
+	ULARGE_INTEGER largeInt;
+	largeInt.QuadPart = tmp.QuadPart / (10000 * 1000);
+	tv.tv_sec = (long)(tmp.QuadPart / (10000 * 1000));
+	tv.tv_usec = (long)((tmp.QuadPart % (10000 * 1000)) / 10);
+	return 0;
+#else
+	return ::gettimeofday(&tv, 0);
+#endif
+}
+
+
+
+int64_t TC_Common::now2ms()
+{
+    struct timeval tv;
+
+    TC_Common::gettimeofday(tv);
+
+    return tv.tv_sec * (int64_t) 1000 + tv.tv_usec / 1000;
+}
+
+int64_t TC_Common::now2us()
+{
+    struct timeval tv;
+
+    TC_Common::gettimeofday(tv);
+
+    return tv.tv_sec * (int64_t) 1000000 + tv.tv_usec;
+}
+
+int TC_Common::gettimeofday(struct timeval &tv)
+{
+    return TC_Port::gettimeofday(tv);
+
+}
+
 //断开连接
 void disconnect(redisContext *c)
 {
@@ -21,10 +71,10 @@ void disconnect(redisContext *c)
 // 选择db
 redisContext *select_database(redisContext *c, int dbIndex)
 {
-    redisReply *reply;
-    reply = (redisReply *)redisCommand(c, "SELECT %d", dbIndex);
-    assert(reply != NULL);
-    freeReplyObject(reply);
+    redisReply *rReply;
+    rReply = (redisReply *)redisCommand(c, "SELECT %d", dbIndex);
+    assert(rReply != NULL);
+    freeReplyObject(rReply);
     return c;
 }
 
@@ -47,8 +97,8 @@ redisContext *do_connect(struct config config)
 
     if (config.passwd != nullptr)
     {
-        redisReply *reply = (redisReply *)redisCommand(c, "AUTH %s", config.passwd); //password为redis服务密码
-        if (reply->type == REDIS_REPLY_ERROR)
+        redisReply *rReply = (redisReply *)redisCommand(c, "AUTH %s", config.passwd); //password为redis服务密码
+        if (rReply->type == REDIS_REPLY_ERROR)
         {
             cout << "Redis 认证失败" << endl;
         }
@@ -56,7 +106,7 @@ redisContext *do_connect(struct config config)
         {
             cout << "Redis 认证成功" << endl;
         }
-        freeReplyObject(reply);
+        freeReplyObject(rReply);
     }
     return c;
 }
@@ -664,46 +714,173 @@ int testCommand2(redisContext *redisContextObj)
        //=================test redisAppendCommand
     {
         int ret = redisAppendCommand(redisContextObj, "set %s  %s", "redisAppendCmd1", "abcdefg");
-        redisReply *reply;
-        assert(redisGetReply(redisContextObj, (void **)&reply) == REDIS_OK);
-        cout << "redisAppendCommand test1 ret:" << ret << ",replyType:" << reply->type << ",reply str:" << reply->str << endl;
-        freeReplyObject(reply);
+        redisReply *rReply;
+        assert(redisGetReply(redisContextObj, (void **)&rReply) == REDIS_OK);
+        cout << "redisAppendCommand test1 ret:" << ret << ",replyType:" << rReply->type << ",rReply str:" << rReply->str << endl;
+        freeReplyObject(rReply);
     }
 
 
 
-    //TODO:测试阻塞写10w条； 非阻塞写10w条数据，并记录执行时间
+    // //======================================================================start
+    // //TODO:测试阻塞写100w条； 非阻塞写10w条数据，并记录执行时间
+    redisReply *rReply =nullptr;    
+    int64_t  llStartMs = 0;
+    int64_t  llEndMs = 0;
 
-    // //======================== 测试批量写入数据
+
+
+
+    // //======================================================================test list 100w
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("lpush ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000;++i)
     // {
-    //     stringstream ssKey;
-    //     stringstream ssVal;
-    //     stringstream ssCommand;
-    //     for (int i = 20211101; i < 20211104; i++)
+    //     for(int j=0;j<1000;++j)
     //     {
-    //         for (int j = 1; j < 3; j++)
-    //         {
-    //             // ssKey.clear(); //错，stringstream 这个方法不行
-    //             // ssVal.clear();
-    //             // ssCommand.clear();
-    //             ssKey.str("");
-    //             ssVal.str("");
-    //             ssCommand.str("");
-    //             ssKey << i << ":"
-    //                   << "key"
-    //                   << "_" << j;
-    //             ssVal << "val_" << j;
-    //             ssCommand << "set " << ssKey.str() << " " << ssVal.str();
-    //             cout << "(" << i << "," << j << ")"
-    //                                             "  ssCommand: "
-    //                  << ssCommand.str() << endl;
-    //             string strCmd = ssCommand.str();
-    //             redisReply *rReply = (redisReply *)redisCommand(redisContextObj, strCmd.c_str());
-    //             freeReplyObject(rReply);
-    //         }
+    //     //测试写入100个字符
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "rpush 100w:Aindex_%d %s",i, "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678910ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678910ABCDEFGHIJKLMNOPQRSTUVWX");
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ rpush Rlisttest10w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
     //     }
     // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("lpush 1000*1000 ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs); //38372ms.  tps=100w/38.372s=2.60w/s
 
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("lpush ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000000;++i)
+    // {
+    //     //测试写入100个字符
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "rpush 100w:Bindex_%d %s", i, "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678910ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678910ABCDEFGHIJKLMNOPQRSTUVWX");
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ rpush Rlisttest10w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("lpush 100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);//38541ms. tps=100w/38.541s=2.59w/s
+
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("lrange ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000000;++i)
+    // {
+    //     //测试查询请求
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "lrange 100w:Aindex_%d 0 1000", i);
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ rpush Rlisttest10w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("lrange 100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);// 35523ms. tps=100w/35.523s=2.8w/s
+
+
+
+    // //==========================================================================test set 
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("hset ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000000;++i)
+    // {
+    //     //测试写入100个字符
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "hset hset100w:index_%d key_%d %s", i,i, "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678910ABCDEFGHIJKLMNOPQRSTUVWXYZ012345678910ABCDEFGHIJKLMNOPQRSTUVWX");
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ hset Rlisttest10w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("hset  100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);//38270ms. tps=100w/38.270s=2.61w/s
+
+
+    // //============test hget
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("hget ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000000;++i)
+    // {
+    //     //测试写入100个字符
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "hget hset100w:index_%d key_%d", i,i);
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ hget hset100w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("hget  100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);//30979ms. tps=100w/30.979s=3.22w/s
+
+
+
+    // //======================================================================================test zset 
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("zadd ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000000;++i)
+    // {
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "zadd zset100w:indexA %d %s_%d", i, "member",i);
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ zadd Rlisttest10w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("hset  100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);//
+
+
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("zadd2 ======startMs:%lld",llStartMs);
+    // for(int i=1000000;i>0;--i)
+    // {
+    //     rReply = (redisReply *)redisCommand(redisContextObj, "zadd zset100w:indexB %d %s_%d", i, "member",i);
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ zadd2 Rlisttest10w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("hset2  100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);//
+
+
+    // //============test zrange  [读]
+    // llStartMs = TC_Common::now2ms();
+    // printInfo("zrange ======startMs:%lld",llStartMs);
+    // for(int i=0;i<1000000;++i)
+    // {
+    //     rReply = (redisReply *)redisCommand(redisContextObj,  "zrange zset100w:indexA 0 1000");
+    //     if (nullptr == rReply)
+    //     {
+    //         cout << "Execute oneCmd [ hget hset100w] failure" << endl;
+    //         redisFree(redisContextObj);
+    //         return -1;
+    //     }
+    //     freeReplyObject(rReply);
+    // }
+    // llEndMs = TC_Common::now2ms();
+    // printInfo("zrange  100w ======endMs:%lld,gap:%lld",llEndMs,llEndMs-llStartMs);//219171ms  tps=100w/219.171s=4562.64/s 每秒4562条
+    // //TODO: lrange, zrange  和读取的数量有关系，如果数量很大，那么时间也会非常高
+    //===================================================================================end
+   
 
     return 0;
 }
@@ -712,47 +889,42 @@ int testCommand3(redisContext *redisContextObj)
 {
 
     test("Is able to deliver commands: ");
-    redisReply *reply = (redisReply *)redisCommand(redisContextObj, "PING");
-    test_cond(reply->type == REDIS_REPLY_STATUS &&
-              strcasecmp(reply->str, "pong") == 0)
-        freeReplyObject(reply);
+    redisReply *rReply = (redisReply *)redisCommand(redisContextObj, "PING");
+    test_cond(rReply->type == REDIS_REPLY_STATUS &&
+              strcasecmp(rReply->str, "pong") == 0)
+        freeReplyObject(rReply);
 
     /* test 7 */
     test("Can parse integer replies: ");
-    reply = (redisReply *)redisCommand(redisContextObj, "INCR mycounter");
-    test_cond(reply->type == REDIS_REPLY_INTEGER && reply->integer == 1)
-        freeReplyObject(reply);
+    rReply = (redisReply *)redisCommand(redisContextObj, "INCR mycounter");
+    test_cond(rReply->type == REDIS_REPLY_INTEGER && rReply->integer == 1)
+        freeReplyObject(rReply);
 
     test("Can parse multi bulk replies: ");
     freeReplyObject(redisCommand(redisContextObj, "LPUSH mylist foo"));
     freeReplyObject(redisCommand(redisContextObj, "LPUSH mylist bar"));
-    reply = (redisReply *)redisCommand(redisContextObj, "LRANGE mylist 0 -1");
-    test_cond(reply->type == REDIS_REPLY_ARRAY &&
-              reply->elements == 2 &&
-              !memcmp(reply->element[0]->str, "bar", 3) &&
-              !memcmp(reply->element[1]->str, "foo", 3))
-        freeReplyObject(reply);
+    rReply = (redisReply *)redisCommand(redisContextObj, "LRANGE mylist 0 -1");
+    test_cond(rReply->type == REDIS_REPLY_ARRAY &&
+              rReply->elements == 2 &&
+              !memcmp(rReply->element[0]->str, "bar", 3) &&
+              !memcmp(rReply->element[1]->str, "foo", 3))
+        freeReplyObject(rReply);
 
     //TODO:redis 的事务。 multi 开始， exec 执行
-    /* m/e with multi bulk reply *before* other reply.
-     * specifically test ordering of reply items to parse. */
+    /* m/e with multi bulk rReply *before* other rReply.
+     * specifically test ordering of rReply items to parse. */
     test("Can handle nested multi bulk replies: ");
     freeReplyObject(redisCommand(redisContextObj, "MULTI"));
     freeReplyObject(redisCommand(redisContextObj, "LRANGE mylist 0 -1"));   //type  REDIS_REPLY_ARRAY
     freeReplyObject(redisCommand(redisContextObj, "LRANGE listtest 0 -1")); //type  REDIS_REPLY_ARRAY
     freeReplyObject(redisCommand(redisContextObj, "PING"));                 //type  REDIS_REPLY_STATUS
-    reply = (redisReply *)(redisCommand(redisContextObj, "EXEC"));
-    cout << "reply->type:" << reply->type << ",reply->elements:" << reply->elements << endl
-         << "[0]" << reply->element[0]->type << "|" << reply->element[0]->elements << "|" << reply->element[0]->element[0]->str << "|" << reply->element[0]->element[1]->str << endl
-         << "[1]" << reply->element[1]->type << "|" << reply->element[1]->elements << "|" << reply->element[1]->element[0]->str << "|" << reply->element[1]->element[1]->str << endl
-         << "[2]" << reply->element[2]->type << "|" << reply->element[2]->str << endl
-         << endl;
-
-    freeReplyObject(reply);
+    rReply = (redisReply *)(redisCommand(redisContextObj, "EXEC"));
+    printInfo("ttl val | type:%d | %s | %s ",rReply->type,convertReplyTypeToStr( rReply->type), ((rReply->str==nullptr)?"[this type has no str]":rReply->str));
+    freeReplyObject(rReply);
 
     // 对 nil 类型做判断
     test("Can parse nil replies: ");
-    reply = (redisReply *)redisCommand(redisContextObj, "GET nokey");
-    test_cond(reply->type == REDIS_REPLY_NIL)
-        freeReplyObject(reply);
+    rReply = (redisReply *)redisCommand(redisContextObj, "GET nokey");
+    test_cond(rReply->type == REDIS_REPLY_NIL)
+        freeReplyObject(rReply);
 }

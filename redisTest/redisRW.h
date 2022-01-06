@@ -169,6 +169,47 @@ struct config
     struct timeval timeout;       //超时时间
 };
 
+class TC_Port
+{
+public:
+    static int gettimeofday(struct timeval &tv);
+};
+
+
+//class UTIL_DLL_API TC_Common
+class  TC_Common
+{
+public:
+    /**
+	* @brief  获取当前的秒和毫秒
+    * @brief  Get the current seconds and milliseconds
+	*
+	* @param t        时间结构
+    * @param t        time structure
+	*/
+    static int gettimeofday(struct timeval &tv);
+
+    
+    /**
+     * @brief  获取当前时间的的毫秒数.
+     * @brief  Get the value of milliseconds of current time.
+     *
+     * @return int64_t 当前时间的的毫秒数
+     * @return int64_t current milliseconds of this time
+     */
+    static int64_t now2ms();
+
+    /**
+     * @brief  取出当前时间的微秒.
+     * @brief  Take out microseconds of current time.
+     *
+     * @return int64_t 取出当前时间的微秒
+     * @return int64_t Take out microseconds of current time.
+     */
+    static int64_t now2us();
+};
+
+
 //断开连接
 void disconnect(redisContext *c);
 // 选择db
@@ -215,6 +256,7 @@ int testCommand3(redisContext *redisContextObj);
 
 // 测试 append 非阻塞操作 
 int testAppendCommand(redisContext *redisContextObj);
+
 
 
 /** 
